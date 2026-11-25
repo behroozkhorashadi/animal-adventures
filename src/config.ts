@@ -364,7 +364,7 @@ export const VILLAGE = { minX: -63, maxX: 63, minZ: 72, maxZ: 160, ridgeZ: 69 };
 export function regionBounds(x: number, z: number) {
   if (z > 500) return JUNGLE;
   if (z > 200) return ANTARCTICA;
-  if (z < -1700) return { minX: -27.5, maxX: 27.5, minZ: -1927.5, maxZ: -1872.5 }; // the Aquarium
+  if (z < -1700) return { minX: -47.5, maxX: 47.5, minZ: -1947.5, maxZ: -1852.5 }; // the Aquarium (it's huge!)
   if (z < -1400) return { minX: -31.5, maxX: 31.5, minZ: -1631.5, maxZ: -1568.5 }; // the Big Play Room
   if (z < -1000) return { minX: -34, maxX: 34, minZ: -1278, maxZ: -1122 }; // inside the Magic Zoo
   if (z < -700) return { minX: -8.2, maxX: 8.2, minZ: -908.2, maxZ: -891.8 }; // inside a secret place

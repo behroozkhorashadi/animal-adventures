@@ -32,6 +32,8 @@ export interface SaveData {
   rescued: string[];              // farm animals you've freed from the barn
   happyBoost?: boolean;
   aquarium?: { species: string; name: string; fed: number }[];
+  /** Are your sea pets in the big tank, or each in their own home tank? */
+  aquaMode?: 'big' | 'own';
   myPets: { species: string; name: string; fed: number; eggs?: number; female?: boolean; food?: number; fun?: number; walkies?: number; outfit?: string; clothes?: string; lost?: { x: number; z: number } }[];
   mode?: 1 | 2;                    // game mode 2 = fast & hard
   secretMaps?: string[];          // secret maps you've found

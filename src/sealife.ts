@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CollisionWorld } from './terrain';
+import { CollisionWorld, Collider } from './terrain';
 
 /** Sea creatures you can befriend while swimming, and keep in your Aquarium. */
 export type SeaSpecies = 'whale' | 'narwhal' | 'dolphin' | 'turtle' | 'octopus' | 'clownfish' | 'jellyfish' | 'seahorse' | 'shark' | 'starfish';
@@ -131,25 +131,81 @@ export function animateSea(r: SeaRig, t: number, speed = 1) {
   else if (r.kind === 'starfish') r.root.rotation.y += 0.002;
 }
 
-/** Your Aquarium: a big dark-blue room with a HUGE glass tank full of your sea pets. */
-export const AQUA = { x: 0, z: -1900, halfW: 26, halfD: 26, tank: { hw: 12, hd: 12, h: 6.5 } };
+/** Your Aquarium: a HUGE dark-blue room with a giant glass tank in the middle and a
+ *  little home tank for each sea pet along the walls (each one sized to fit its animal). */
+export const AQUA = { x: 0, z: -1900, halfW: 44, halfD: 44, tank: { hw: 17, hd: 17, h: 8.5 } };
 
-interface TankPet { idx: number; rig: SeaRig; a: number; r: number; y: number; speed: number; scale: number; cx: number; cz: number }
+/** What kind of home each sea pet likes. */
+const HOME_OF: Record<SeaSpecies, 'ocean' | 'reef' | 'kelp' | 'beach'> = {
+  whale: 'ocean', narwhal: 'ocean', dolphin: 'ocean', shark: 'ocean',
+  clownfish: 'reef', seahorse: 'reef', starfish: 'reef', turtle: 'beach', octopus: 'kelp', jellyfish: 'kelp',
+};
+const HOME_LOOK = {
+  ocean: { water: 0x2a6ac8, sand: 0xc8c0a0, label: '🌊 Deep ocean' },
+  reef: { water: 0x3ac8e8, sand: 0xf4e4b0, label: '🪸 Coral reef' },
+  kelp: { water: 0x1a4a7a, sand: 0x8a8a7a, label: '🌿 Kelp forest' },
+  beach: { water: 0x4ab8d8, sand: 0xf0dca0, label: '🏝️ Sandy shore' },
+};
+/** A home tank: its middle, half-size, height, and which way its glass front faces. */
+export interface OwnTank { x: number; z: number; hw: number; hd: number; h: number; face: 'n' | 's' | 'e' | 'w' }
+/** How big a home tank should be for this animal. */
+function tankSize(k: SeaSpecies) {
+  const sz = Math.min(SEA_INFO[k].size, 5.5);
+  return { w: Math.max(3.2, Math.min(13, sz * 2.3 + 1.6)), d: Math.max(3, Math.min(9, sz * 1.5 + 2)), h: Math.max(2.6, Math.min(7.5, sz * 1.1 + 2)) };
+}
+/** Line the home tanks up along the back wall, then the left and right walls. */
+export function layoutTanks(list: { species: string }[]): OwnTank[] {
+  const A = AQUA, out: OwnTank[] = [];
+  const walls = [
+    { face: 's' as const, from: A.x - A.halfW + 2, to: A.x + A.halfW - 2 },   // back wall (glass faces you as you walk in)
+    { face: 'e' as const, from: A.z - A.halfD + 12, to: A.z + A.halfD - 8 },  // left wall
+    { face: 'w' as const, from: A.z - A.halfD + 12, to: A.z + A.halfD - 8 },  // right wall
+  ];
+  let w = 0, cur = walls[0].from;
+  for (const q of list) {
+    const k = (SEA_INFO[q.species as SeaSpecies] ? q.species : 'clownfish') as SeaSpecies, t = tankSize(k);
+    while (w < walls.length && cur + t.w > walls[w].to) { w++; if (w < walls.length) cur = walls[w].from; }
+    if (w >= walls.length) { out.push({ x: A.x, z: A.z, hw: 1, hd: 1, h: 2, face: 's' }); continue; }   // no room left: shares the big tank
+    const mid = cur + t.w / 2; cur += t.w + 1.4;
+    const W = walls[w];
+    if (W.face === 's') out.push({ x: mid, z: A.z - A.halfD + 0.6 + t.d / 2, hw: t.w / 2, hd: t.d / 2, h: t.h, face: 's' });
+    else if (W.face === 'e') out.push({ x: A.x - A.halfW + 0.6 + t.d / 2, z: mid, hw: t.d / 2, hd: t.w / 2, h: t.h, face: 'e' });
+    else out.push({ x: A.x + A.halfW - 0.6 - t.d / 2, z: mid, hw: t.d / 2, hd: t.w / 2, h: t.h, face: 'w' });
+  }
+  return out;
+}
+
+interface TankPet { idx: number; rig: SeaRig; a: number; r: number; y: number; speed: number; scale: number; cx: number; cz: number; home: { x: number; z: number; hw: number; hd: number; h: number } }
 export class Aquarium {
   group = new THREE.Group();
   pets: TankPet[] = [];
   bubbles: THREE.Mesh[] = [];
-  constructor(scene: THREE.Scene, collision: CollisionWorld) {
+  weeds: THREE.Mesh[] = [];
+  /** 'big' = everyone in the giant tank, 'own' = everyone in their own home tank. */
+  mode: 'big' | 'own' = 'big';
+  tanks: OwnTank[] = [];
+  private tankGroup = new THREE.Group();
+  private tankCols: Collider[] = [];
+  private lbl(text: string, w: number, sub = '') {
+    const H = sub ? 200 : 128;
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = H;
+    const gx = cv.getContext('2d')!; gx.fillStyle = '#eaf6ff'; gx.beginPath(); gx.roundRect(4, 4, 504, H - 8, 26); gx.fill();
+    gx.fillStyle = '#1a5a9a'; gx.font = 'bold 50px Nunito, sans-serif'; gx.textAlign = 'center'; gx.textBaseline = 'middle'; gx.fillText(text, 256, 66, 490);
+    if (sub) { gx.fillStyle = '#4a7aa0'; gx.font = 'bold 38px Nunito, sans-serif'; gx.fillText(sub, 256, 145, 490); }
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, (w * H) / 512), new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide }));
+  }
+  constructor(scene: THREE.Scene, private collision: CollisionWorld) {
     const A = AQUA, T = A.tank, g = this.group;
-    g.visible = false; scene.add(g);
+    g.visible = false; scene.add(g); g.add(this.tankGroup);
     // floor and walls
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(A.halfW * 2, A.halfD * 2), mat(0x1a3a5a, { roughness: 0.4 })); floor.rotation.x = -Math.PI / 2; floor.position.set(A.x, 0.01, A.z); g.add(floor);
-    const wallM = mat(0x163050), H = 9;
+    const wallM = mat(0x163050), H = 11;
     const wall = (w: number, d: number, px: number, pz: number) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, H, d), wallM); m.position.set(px, H / 2, pz); g.add(m); collision.add({ kind: 'box', minX: px - w / 2, maxX: px + w / 2, minZ: pz - d / 2, maxZ: pz + d / 2, top: 100, tall: true }); };
     wall(A.halfW * 2 + 1, 0.5, A.x, A.z - A.halfD); wall(A.halfW * 2 + 1, 0.5, A.x, A.z + A.halfD); wall(0.5, A.halfD * 2, A.x - A.halfW, A.z); wall(0.5, A.halfD * 2, A.x + A.halfW, A.z);
-    // the tank: sand, glass, water, rocks, coral and seaweed
+    // the giant tank: sand, glass, water, rocks, coral and seaweed
     const sand = new THREE.Mesh(new THREE.BoxGeometry(T.hw * 2, 0.4, T.hd * 2), mat(0xe8d49a)); sand.position.set(A.x, 0.2, A.z); g.add(sand);
-    const water = new THREE.Mesh(new THREE.BoxGeometry(T.hw * 2 - 0.2, T.h - 0.6, T.hd * 2 - 0.2), new THREE.MeshStandardMaterial({ color: 0x2a9ad8, transparent: true, opacity: 0.28, roughness: 0.05, depthWrite: false }));
+    const water = new THREE.Mesh(new THREE.BoxGeometry(T.hw * 2 - 0.2, T.h - 0.6, T.hd * 2 - 0.2), new THREE.MeshStandardMaterial({ color: 0x2a9ad8, transparent: true, opacity: 0.32, roughness: 0.05, depthWrite: false }));
     water.position.set(A.x, 0.4 + (T.h - 0.6) / 2, A.z); water.renderOrder = 2; g.add(water);
     const glass = new THREE.Mesh(new THREE.BoxGeometry(T.hw * 2, T.h, T.hd * 2), new THREE.MeshStandardMaterial({ color: 0xcff0ff, transparent: true, opacity: 0.12, roughness: 0.02, depthWrite: false, side: THREE.DoubleSide }));
     glass.position.set(A.x, T.h / 2, A.z); glass.renderOrder = 3; g.add(glass);
@@ -158,60 +214,106 @@ export class Aquarium {
     for (const sz of [-1, 1]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(T.hw * 2, 0.2, 0.25), frame); rail.position.set(A.x, T.h, A.z + sz * T.hd); g.add(rail); }
     for (const sx of [-1, 1]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, T.hd * 2), frame); rail.position.set(A.x + sx * T.hw, T.h, A.z); g.add(rail); }
     collision.add({ kind: 'box', minX: A.x - T.hw - 0.2, maxX: A.x + T.hw + 0.2, minZ: A.z - T.hd - 0.2, maxZ: A.z + T.hd + 0.2, top: 100, tall: true });
-    const rnd = (a: number, b: number) => a + Math.random() * (b - a);
-    for (let k = 0; k < 14; k++) { const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.4, 1.1), 0), mat(0x7a7a8a)); rk.position.set(A.x + rnd(-T.hw + 1, T.hw - 1), 0.5, A.z + rnd(-T.hd + 1, T.hd - 1)); g.add(rk); }
-    const corals = [0xff6a8a, 0xffa04a, 0xc86aff, 0xffe04a, 0x4ad8c8];
-    for (let k = 0; k < 26; k++) {
-      const cx = A.x + rnd(-T.hw + 1, T.hw - 1), cz = A.z + rnd(-T.hd + 1, T.hd - 1);
-      if (k % 2) { for (let j = 0; j < 4; j++) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, rnd(0.6, 1.4), 6), mat(corals[k % 5])); br.position.set(cx + rnd(-0.3, 0.3), 0.9, cz + rnd(-0.3, 0.3)); br.rotation.set(rnd(-0.5, 0.5), 0, rnd(-0.5, 0.5)); g.add(br); } }
-      else { for (let j = 0; j < 3; j++) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, rnd(1.5, 3.5), 5), mat(0x3aa84a)); w.position.set(cx + rnd(-0.4, 0.4), 1.5, cz + rnd(-0.4, 0.4)); w.rotation.z = rnd(-0.2, 0.2); w.userData.sway = Math.random() * 6; g.add(w); this.weeds.push(w); } }
-    }
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.8), mat(0x8a5a2a)); chest.position.set(A.x + 5, 0.8, A.z - 6); chest.rotation.y = 0.4; g.add(chest);
-    for (let k = 0; k < 40; k++) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), new THREE.MeshStandardMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.6 })); b.position.set(A.x + rnd(-T.hw + 1, T.hw - 1), rnd(0.5, T.h - 0.5), A.z + rnd(-T.hd + 1, T.hd - 1)); g.add(b); this.bubbles.push(b); }
+    this.decorate(g, A.x, A.z, T.hw, T.hd, T.h, 'reef', 1.6);
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.9, 0.9), mat(0x8a5a2a)); chest.position.set(A.x + 6, 0.85, A.z - 7); chest.rotation.y = 0.4; g.add(chest);
+    const bigSign = this.lbl('🌊 The Big Tank', 7, 'Everyone swims together!'); bigSign.position.set(A.x, T.h + 1.6, A.z + T.hd + 0.2); g.add(bigSign);
     // lights
-    const top = new THREE.PointLight(0x9ad8ff, 10, 80, 1.2); top.position.set(A.x, 14, A.z); g.add(top);
-    g.add(new THREE.HemisphereLight(0x8ac8ff, 0x0a1a3a, 0.9));
-    // way out + sign
-    const lbl = (text: string, w: number) => {
-      const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128;
-      const gx = cv.getContext('2d')!; gx.fillStyle = '#eaf6ff'; gx.beginPath(); gx.roundRect(4, 4, 504, 120, 26); gx.fill();
-      gx.fillStyle = '#1a5a9a'; gx.font = 'bold 50px Nunito, sans-serif'; gx.textAlign = 'center'; gx.textBaseline = 'middle'; gx.fillText(text, 256, 66, 490);
-      const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
-      return new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide }));
-    };
+    const top = new THREE.PointLight(0x9ad8ff, 14, 140, 1.1); top.position.set(A.x, 18, A.z); g.add(top);
+    g.add(new THREE.HemisphereLight(0x8ac8ff, 0x0a1a3a, 1.0));
+    // way out + title
     const door = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3.4), mat(0xbfe8ff, { emissive: 0x6ac8ff, emissiveIntensity: 1.2, side: THREE.DoubleSide }));
     door.position.set(A.x, 1.7, A.z + A.halfD - 0.3); door.rotation.y = Math.PI; g.add(door);
-    const out = lbl('🚪 Way out', 2.6); out.position.set(A.x, 3.8, A.z + A.halfD - 0.35); out.rotation.y = Math.PI; g.add(out);
-    const title = lbl('🐠 My Aquarium 🐋', 10); title.position.set(A.x, 7.5, A.z - A.halfD + 0.4); g.add(title);
+    const out = this.lbl('🚪 Way out', 2.6); out.position.set(A.x, 3.8, A.z + A.halfD - 0.35); out.rotation.y = Math.PI; g.add(out);
+    const title = this.lbl('🐠 My Aquarium 🐋', 14); title.position.set(A.x, 9.5, A.z - A.halfD + 0.4); g.add(title);
   }
-  weeds: THREE.Mesh[] = [];
-  fill(list: { species: string }[]) {
+  /** Sand, rocks, coral, seaweed and bubbles inside a tank, to match the home. */
+  private decorate(g: THREE.Object3D, cx: number, cz: number, hw: number, hd: number, h: number, home: keyof typeof HOME_LOOK, density = 1) {
+    const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+    const n = Math.max(2, Math.round(hw * hd * 0.18 * density));
+    const corals = [0xff6a8a, 0xffa04a, 0xc86aff, 0xffe04a, 0x4ad8c8];
+    for (let k = 0; k < n; k++) {
+      const x = cx + rnd(-hw + 0.5, hw - 0.5), z = cz + rnd(-hd + 0.5, hd - 0.5);
+      const pick = home === 'reef' ? k % 3 : home === 'kelp' ? (k % 4 ? 1 : 2) : home === 'beach' ? (k % 3 ? 2 : 1) : (k % 4 ? 2 : 1);
+      if (pick === 0) { for (let j = 0; j < 4; j++) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, rnd(0.4, 1.2), 6), mat(corals[k % 5])); br.position.set(x + rnd(-0.25, 0.25), 0.7, z + rnd(-0.25, 0.25)); br.rotation.set(rnd(-0.5, 0.5), 0, rnd(-0.5, 0.5)); g.add(br); } }
+      else if (pick === 1) { const tall = home === 'kelp' ? rnd(2, h - 0.8) : rnd(0.8, Math.min(3, h - 0.8)); const wd = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, tall, 5), mat(home === 'kelp' ? 0x5a8a2a : 0x3aa84a)); wd.position.set(x, 0.4 + tall / 2, z); wd.userData.sway = Math.random() * 6; g.add(wd); this.weeds.push(wd); }
+      else { const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.25, Math.min(0.9, hw * 0.25)), 0), mat(home === 'beach' ? 0x9a8a7a : 0x6a6a7a)); rk.position.set(x, 0.45, z); g.add(rk); }
+    }
+    if (home === 'beach') { const isle = new THREE.Mesh(new THREE.SphereGeometry(Math.min(hw, hd) * 0.5, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0xf0dca0)); isle.scale.y = 0.35; isle.position.set(cx - hw * 0.3, 0.4, cz); g.add(isle); }
+    const nb = Math.max(4, Math.round(hw * hd * 0.15));
+    for (let k = 0; k < nb; k++) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), new THREE.MeshStandardMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.6 })); b.position.set(cx + rnd(-hw + 0.3, hw - 0.3), rnd(0.5, h - 0.4), cz + rnd(-hd + 0.3, hd - 0.3)); b.userData.top = h - 0.4; g.add(b); this.bubbles.push(b); }
+  }
+  /** Build a little home tank for each sea pet, each one the right size and style. */
+  private buildTanks(list: { species: string; name: string }[]) {
+    this.tankGroup.clear(); for (const c of this.tankCols) this.collision.remove(c); this.tankCols = [];
+    this.bubbles = this.bubbles.filter((b) => b.parent && b.parent !== this.tankGroup);
+    this.weeds = this.weeds.filter((w) => w.parent && w.parent !== this.tankGroup);
+    this.tanks = layoutTanks(list);
+    const g = this.tankGroup;
+    this.tanks.forEach((t, i) => {
+      if (t.hw <= 1) return;
+      const q = list[i], k = q.species as SeaSpecies, home = HOME_OF[k] ?? 'reef', look = HOME_LOOK[home];
+      const sand = new THREE.Mesh(new THREE.BoxGeometry(t.hw * 2, 0.4, t.hd * 2), mat(look.sand)); sand.position.set(t.x, 0.2, t.z); g.add(sand);
+      const water = new THREE.Mesh(new THREE.BoxGeometry(t.hw * 2 - 0.15, t.h - 0.5, t.hd * 2 - 0.15), new THREE.MeshStandardMaterial({ color: look.water, transparent: true, opacity: 0.35, roughness: 0.05, depthWrite: false }));
+      water.position.set(t.x, 0.4 + (t.h - 0.5) / 2, t.z); water.renderOrder = 2; g.add(water);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(t.hw * 2, t.h, t.hd * 2), new THREE.MeshStandardMaterial({ color: 0xcff0ff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide }));
+      glass.position.set(t.x, t.h / 2, t.z); glass.renderOrder = 3; g.add(glass);
+      const frame = mat(0xffffff);
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, t.h, 0.15), frame); post.position.set(t.x + sx * t.hw, t.h / 2, t.z + sz * t.hd); g.add(post); }
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(t.hw * 2 + 0.1, 0.12, t.hd * 2 + 0.1), frame); lid.position.set(t.x, t.h, t.z); g.add(lid);
+      this.decorate(g, t.x, t.z, t.hw, t.hd, t.h, home, 1);
+      // the name sign on the glass front
+      const sign = this.lbl(`${SEA_INFO[k]?.emoji ?? '🐟'} ${q.name}`, Math.min(4, Math.max(2.4, (t.face === 's' ? t.hw : t.hd) * 1.6)), `${SEA_INFO[k]?.name ?? k} · ${look.label}`);
+      if (t.face === 's') { sign.position.set(t.x, t.h + 0.8, t.z + t.hd + 0.05); }
+      else if (t.face === 'e') { sign.position.set(t.x + t.hw + 0.05, t.h + 0.8, t.z); sign.rotation.y = Math.PI / 2; }
+      else { sign.position.set(t.x - t.hw - 0.05, t.h + 0.8, t.z); sign.rotation.y = -Math.PI / 2; }
+      g.add(sign);
+      this.tankCols.push(this.collision.add({ kind: 'box', minX: t.x - t.hw - 0.15, maxX: t.x + t.hw + 0.15, minZ: t.z - t.hd - 0.15, maxZ: t.z + t.hd + 0.15, top: 100, tall: true }) as Collider);
+    });
+  }
+  fill(list: { species: string; name: string }[], mode: 'big' | 'own' = this.mode) {
     this.clear();
-    const T = AQUA.tank;
+    this.mode = mode;
+    this.buildTanks(list);
+    const A = AQUA, T = A.tank;
     list.forEach((q, idx) => {
       const kind = q.species as SeaSpecies; if (!SEA_INFO[kind]) return;
       const rig = buildSeaCreature(kind);
-      const scale = Math.min(SEA_INFO[kind].size, 5.5);
+      const own = this.tanks[idx], inOwn = mode === 'own' && own && own.hw > 1;
+      const home = inOwn ? { x: own.x, z: own.z, hw: own.hw, hd: own.hd, h: own.h } : { x: A.x, z: A.z, hw: T.hw, hd: T.hd, h: T.h };
+      // a sea pet fills its own home nicely; in the big tank big animals stay big
+      const scale = inOwn ? Math.min(SEA_INFO[kind].size, Math.min(home.hw, home.hd) * 1.3, home.h * 0.8) : Math.min(SEA_INFO[kind].size, 6.5);
       rig.root.scale.setScalar(scale);
       this.group.add(rig.root);
-      const r = kind === 'whale' || kind === 'narwhal' ? T.hw - 4 : 2 + Math.random() * (T.hw - 4.5);
-      this.pets.push({ idx, rig, a: Math.random() * 6.28, r, y: kind === 'starfish' ? 0.5 : kind === 'octopus' ? 1 : 1.3 + Math.random() * (T.h - 3), speed: (kind === 'starfish' ? 0 : kind === 'jellyfish' || kind === 'seahorse' ? 0.15 : 0.35 + Math.random() * 0.2) * (idx % 2 ? 1 : -1), scale, cx: (Math.random() - 0.5) * 3, cz: (Math.random() - 0.5) * 3 });
+      const room = Math.min(home.hw, home.hd);
+      const r = Math.max(0.2, room - Math.max(0.6, scale * 0.45) - (inOwn ? 0.2 : 1));
+      const still = kind === 'starfish', slow = kind === 'jellyfish' || kind === 'seahorse';
+      const y = kind === 'starfish' ? 0.5 : kind === 'octopus' ? 0.9 : Math.max(0.6 + scale * 0.3, Math.min(home.h - 0.6 - scale * 0.3, 1 + Math.random() * (home.h - 2)));
+      this.pets.push({ idx, rig, a: Math.random() * 6.28, r: inOwn ? Math.min(r, room * 0.7) : (kind === 'whale' || kind === 'narwhal' ? r : 2 + Math.random() * Math.max(0.5, r - 2)), y, speed: (still ? 0 : slow ? 0.15 : 0.35 + Math.random() * 0.2) * (idx % 2 ? 1 : -1) * (inOwn ? 1.3 : 1), scale, cx: inOwn ? 0 : (Math.random() - 0.5) * 3, cz: inOwn ? 0 : (Math.random() - 0.5) * 3, home });
     });
   }
   clear() { for (const p of this.pets) p.rig.root.removeFromParent(); this.pets = []; }
+  /** Where a pet's tank is (for visiting). */
+  tankNear(x: number, z: number) {
+    const A = AQUA, T = A.tank;
+    if (Math.abs(x - A.x) < T.hw + 4 && Math.abs(z - A.z) < T.hd + 4) return 'big';
+    const i = this.tanks.findIndex((t) => t.hw > 1 && Math.abs(x - t.x) < t.hw + 3 && Math.abs(z - t.z) < t.hd + 3);
+    return i;
+  }
   update(dt: number, t: number, inside: boolean) {
     this.group.visible = inside;
     if (!inside) return;
-    const A = AQUA, T = A.tank;
     for (const p of this.pets) {
       p.a += p.speed * dt;
-      const x = A.x + p.cx + Math.cos(p.a) * p.r, z = A.z + p.cz + Math.sin(p.a) * p.r;
-      const y = p.y + Math.sin(t * 0.8 + p.idx) * (p.rig.kind === 'jellyfish' ? 0.6 : 0.25);
+      const H = p.home;
+      // an oval swim path that fits the tank
+      const rx = Math.min(p.r, H.hw - p.scale * 0.45), rz = Math.min(p.r * (H.hd / Math.max(H.hw, 0.1)), H.hd - p.scale * 0.45);
+      const x = H.x + p.cx + Math.cos(p.a) * Math.max(0.1, rx), z = H.z + p.cz + Math.sin(p.a) * Math.max(0.1, rz);
+      const y = p.y + Math.sin(t * 0.8 + p.idx) * (p.rig.kind === 'jellyfish' ? 0.5 : 0.2);
       p.rig.root.position.set(x, y, z);
-      if (p.speed) p.rig.root.rotation.y = Math.atan2(-Math.sin(p.a) * Math.sign(p.speed), Math.cos(p.a) * Math.sign(p.speed));
+      if (p.speed) p.rig.root.rotation.y = Math.atan2(-Math.sin(p.a) * Math.sign(p.speed) * rx, Math.cos(p.a) * Math.sign(p.speed) * rz);
       animateSea(p.rig, t + p.idx, 1);
     }
-    for (const b of this.bubbles) { b.position.y += dt * 0.8; if (b.position.y > T.h - 0.4) b.position.y = 0.5; }
+    for (const b of this.bubbles) { b.position.y += dt * 0.8; const top = (b.userData.top as number) ?? AQUA.tank.h - 0.4; if (b.position.y > top) b.position.y = 0.5; }
     for (const w of this.weeds) w.rotation.z = Math.sin(t + (w.userData.sway as number)) * 0.15;
   }
 }

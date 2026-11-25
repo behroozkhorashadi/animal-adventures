@@ -447,6 +447,8 @@ export class Game {
       this.renderer.domElement.addEventListener('pointerup', (e) => { if (this.climb && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 8) this.climbTap(e.clientX, e.clientY); down = null; });
     }
     $('coins').addEventListener('click', () => { if (this.started && !this.modal && !this.captive) this.openSendCoins(); });
+    hudBtn('btn-aqua-own', () => this.setAquaMode('own'));
+    hudBtn('btn-aqua-big', () => this.setAquaMode('big'));
     hudBtn('btn-aquarium', () => { if (this.inAquarium) this.leaveAquarium(); else this.enterAquarium(); });
     hudBtn('btn-play-all', () => { if (this.inPlayroom) this.leavePlayroom(); else this.enterPlayroom(); });
     hudBtn('btn-bag', () => this.openBag());
@@ -1483,7 +1485,7 @@ export class Game {
     $('fade-text').textContent = '🐠 Off to your Aquarium…';
     $('fade').classList.add('on');
     this.later(0.8, () => {
-      this.aquarium.fill(this.save.aquarium ?? []);
+      this.aquarium.fill(this.save.aquarium ?? [], this.save.aquaMode ?? 'big');
       this.pos.set(AQUA.x, 0, AQUA.z + AQUA.halfD - 5); this.vy = 0; this.yaw = Math.PI; this.grounded = true; this.groundY = 0; this.lunge = null;
       this.cam.reset(this.yaw, true);
       $('fade').classList.remove('on');
@@ -1506,6 +1508,18 @@ export class Game {
       this.later(0.3, () => { this.respawning = false; });
     });
   }
+  /** Move all your sea pets to their own home tanks, or all together into the big tank. */
+  setAquaMode(mode: 'big' | 'own') {
+    const list = this.save.aquarium ?? [];
+    if (!list.length) { toast('🐠 You don\'t have any sea pets yet! Make friends with them while you swim in the sea.', '', 2600); return; }
+    if ((this.save.aquaMode ?? 'big') === mode) { toast(mode === 'own' ? '🏠 Everyone is already in their own tank!' : '🌊 Everyone is already in the big tank!', '', 1800); return; }
+    this.save.aquaMode = mode; this.persist();
+    for (const p of this.aquarium.pets) this.effects.push(sparkleBurst(this.scene, p.rig.root.position.clone(), 0x9ae0ff, 10));
+    this.aquarium.fill(list, mode);
+    for (const p of this.aquarium.pets) this.effects.push(sparkleBurst(this.scene, p.rig.root.position.clone(), 0x9ae0ff, 14));
+    this.audio.splash();
+    toast(mode === 'own' ? '🏠 Swish! Everyone swam to their very own home tank!' : '🌊 Splash! Everyone swam into the big tank to play together!', 'good', 2600);
+  }
   /** Visit your sea pets: feed them or let them go. */
   openAquariumPets() {
     const list = this.save.aquarium ?? [];
@@ -1520,7 +1534,7 @@ export class Game {
           body.append(el('div', { class: 'action-row', style: 'flex-wrap:wrap;align-items:center;justify-content:flex-start' },
             el('strong', { text: `${info?.emoji ?? '🐟'} ${q.name} the ${info?.name ?? q.species}`, style: 'min-width:200px' }),
             button('🦐 Feed', 'btn-green btn-small', () => { q.fed++; this.persist(); this.audio.food(); toast(`😋 ${q.name} gobbled up the yummy shrimp! 💙`, 'good', 2000); }),
-            button('🌊 Let go free', 'btn-small', () => { list.splice(i, 1); this.persist(); this.aquarium.fill(list); toast(`👋 Bye bye, ${q.name}! It swam back to the big blue sea.`, 'good', 2600); draw(); })));
+            button('🌊 Let go free', 'btn-small', () => { list.splice(i, 1); this.persist(); this.aquarium.fill(list, this.save.aquaMode ?? 'big'); toast(`👋 Bye bye, ${q.name}! It swam back to the big blue sea.`, 'good', 2600); draw(); })));
         });
         box.append(body);
       };
@@ -3953,7 +3967,9 @@ export class Game {
     $('btn-rescue-map').hidden = ![...this.pets, ...this.family].some((q) => q.caged);
     document.body.classList.toggle('underwater', this.underwater);
     $('pet-row').hidden = !!this.captive || !!this.modal;
-    for (const id of ['btn-walk-all', 'btn-feed-all', 'btn-protect', 'btn-play-all']) $(id).hidden = !this.save.myPets.length;
+    for (const id of ['btn-walk-all', 'btn-feed-all', 'btn-protect', 'btn-play-all']) $(id).hidden = !this.save.myPets.length || this.inAquarium;
+    $('btn-aqua-own').hidden = !this.inAquarium || !(this.save.aquarium ?? []).length;
+    $('btn-aqua-big').hidden = !this.inAquarium || !(this.save.aquarium ?? []).length;
     this.setText('btn-aquarium', this.inAquarium ? '🚪 Leave the Aquarium' : '🐠 Aquarium');
     $('btn-protect').classList.toggle('on', this.protectOn);
     this.setText('btn-play-all', this.inPlayroom ? '🚪 Leave the Play Room' : '🎉 Play with everyone');
@@ -4110,9 +4126,9 @@ export class Game {
     else if (hha) act = hha;
     else if (this.swimming && !this.respawning && this.seaFriendNear()) { const w = this.seaFriendNear()!; act = { label: `💙 Make friends with the ${SEA_INFO[w.kind].name} ${SEA_INFO[w.kind].emoji}`, fn: () => this.befriendSea(w) }; }
     else if (this.inAquarium && !this.respawning) {
-      const T = AQUA.tank, nearTank = Math.abs(this.pos.x - AQUA.x) < T.hw + 4.5 && Math.abs(this.pos.z - AQUA.z) < T.hd + 4.5;
+      const tn = this.aquarium.tankNear(this.pos.x, this.pos.z), nearTank = tn === 'big' || tn >= 0;
       if (near(AQUA.x, AQUA.z + AQUA.halfD - 1.5, 3)) act = { label: '🚪 Leave the Aquarium', fn: () => this.leaveAquarium() };
-      else if (nearTank) act = { label: '🐠 Visit your sea pets', fn: () => this.openAquariumPets() };
+      else if (nearTank) { const q = typeof tn === 'number' && (this.save.aquaMode ?? 'big') === 'own' ? (this.save.aquarium ?? [])[tn] : null; act = { label: q ? `🐠 Visit ${q.name}` : '🐠 Visit your sea pets', fn: () => this.openAquariumPets() }; }
     }
     else if (this.pos.z > -300 && this.lostPetNear() >= 0) { const li = this.lostPetNear(); act = { label: `🤗 You found ${this.save.myPets[li].name}! Bring it home`, fn: () => this.bringLostPetHome(li) }; }
     else if (this.inPlayroom && !this.respawning) {
