@@ -1,0 +1,23 @@
+{
+  "name": "animal-adventures",
+  "version": "1.0.0",
+  "description": "Animal Adventures - a 3D animal exploration game designed with a young game designer",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "build:single": "vite build --mode single && node scripts/embed-single.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.6",
+    "vite-plugin-singlefile": "^2.3.4"
+  },
+  "private": true,
+  "type": "module"
+}

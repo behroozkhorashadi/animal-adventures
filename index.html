@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Animal Adventures</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@600;700;800&display=swap" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game" tabindex="0" aria-label="Game world"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+
+    <div id="hud" hidden>
+      <div id="talk-invite" class="talk-invite glass" hidden><span id="talk-invite-text"></span><button id="btn-talk-reply" class="btn btn-green btn-small" type="button">💬 Reply</button></div>
+      <div id="hud-left" class="glass">
+        <button id="btn-player" class="player-chip" type="button" aria-label="Switch player"></button>
+        <div id="hud-animal"><span id="hud-animal-icon"></span><span id="hud-animal-name"></span><button id="daytime-chip" class="daytime-chip" type="button" title="Tap to switch between day and night" aria-label="Switch between day and night"></button><span id="mode-chip" class="daytime-chip mode-chip" hidden>⚡ Mode 2</span></div>
+        <div class="bar-row">
+          <span class="bar-label"><span class="bar-icon">❤️</span>Health</span>
+          <div class="bar"><div id="hp-fill" class="fill hp"></div></div>
+          <span id="hp-text" class="bar-num"></span>
+        </div>
+        <div class="bar-row" id="sp-row">
+          <span class="bar-label"><span class="bar-icon">⚡</span>Special</span>
+          <div class="bar"><div id="sp-fill" class="fill sp"></div></div>
+          <span id="sp-text" class="bar-num"></span>
+        </div>
+      </div>
+
+      <div id="hud-right">
+        <div id="coins" class="glass" title="Tap to send coins to another player"><span class="coin-icon" aria-hidden="true"></span><span id="coin-count">0</span><span class="coin-word">coins</span></div>
+        <button id="btn-shop" class="btn btn-shop" type="button">🛒 Shop</button>
+        <button id="btn-travel" class="btn btn-travel" type="button">🧭 Travel</button>
+        <button id="btn-talk-owner" class="btn btn-small btn-friends" type="button" hidden>💬 Talk</button>
+        <button id="btn-rescue-map" class="btn btn-small btn-rescue" type="button" hidden>🗺️ Rescue map</button>
+        <button id="btn-friends-home" class="btn btn-small btn-friends" type="button" hidden>🏠 Everyone, go home</button>
+        <div id="pet-row" class="hud-row" hidden>
+          <button id="btn-walk-all" class="btn btn-small btn-friends" type="button">🦮 Walk pets</button>
+          <button id="btn-feed-all" class="btn btn-small btn-friends" type="button">🍎 Feed all</button>
+          <button id="btn-protect" class="btn btn-small btn-protect" type="button">🛡️ Protect me</button>
+          <button id="btn-play-all" class="btn btn-small btn-play-all" type="button">🎉 Play with everyone</button>
+          <button id="btn-aquarium" class="btn btn-small btn-aqua" type="button">🐠 Aquarium</button>
+        </div>
+        <div class="hud-row">
+          <button id="btn-bag" class="btn btn-small" type="button">🎒 Bag <span id="bag-count" class="bag-count">0</span></button>
+          <button id="btn-animals" class="btn btn-small" type="button">🐾 Animals</button>
+          <button id="btn-pause" class="btn btn-small" type="button">⏸ Menu</button>
+        </div>
+      </div>
+
+      <div id="objective" class="glass">
+        <div class="obj-title">Goal</div>
+        <div id="objective-text"></div>
+        <div id="objective-progress"></div>
+      </div>
+
+      <button id="btn-action" class="btn btn-action" type="button" hidden></button>
+      <div id="climb-panel" class="climb-panel glass" hidden>
+        <div id="climb-tip" class="climb-tip">Tap a rock, then press Hand or Foot!</div>
+        <div class="climb-btns">
+          <button id="btn-climb-hand" class="btn btn-climb" type="button">✋ Hand</button>
+          <button id="btn-climb-foot" class="btn btn-climb" type="button">🦶 Foot</button>
+          <button id="btn-climb-down" class="btn btn-small" type="button">⬇️ Climb down</button>
+        </div>
+      </div>
+      <div id="special-ready" hidden>✨ Special ready! Press <kbd>3</kbd></div>
+      <div id="home-hint" hidden>❤️ Low health! Press <kbd>E</kbd> to eat something.</div>
+
+      <div id="controls" class="glass">
+        <button id="controls-toggle" type="button" aria-expanded="true">🎮 Controls <span class="chev">▾</span></button>
+        <ul id="controls-list">
+          <li><span class="keys"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span> Move</li>
+          <li><span class="keys"><kbd class="wide">Space</kbd></span> Jump</li>
+          <li><span class="keys"><kbd>1</kbd></span> Scratch</li>
+          <li><span class="keys"><kbd>2</kbd></span> Bite</li>
+          <li><span class="keys"><kbd>3</kbd></span> Special move</li>
+          <li><span class="keys"><kbd>0</kbd></span> Jump attack</li>
+          <li><span class="keys"><span class="mouse">Drag</span></span> Turn camera</li>
+          <li><span class="keys"><span class="mouse">Scroll</span></span> Zoom</li>
+          <li><span class="keys"><kbd>E</kbd></span> Eat food</li>
+          <li><span class="keys"><kbd>B</kbd></span> Open bag</li>
+          <li><span class="keys"><kbd>A</kbd></span> Use / open</li>
+          <li><span class="keys"><kbd>F</kbd></span> Talk to family, friends and pets</li>
+          <li><span class="keys"><kbd>L</kbd></span> Close door</li>
+          <li><span class="keys"><kbd>C</kbd></span> Camera behind</li>
+          <li><span class="keys"><kbd class="wide">Esc</kbd></span> Pause</li>
+        </ul>
+      </div>
+
+      <div id="minimap" class="glass">
+        <canvas id="minimap-canvas" width="340" height="340" aria-label="Map of the area around you"></canvas>
+        <div id="minimap-note"></div>
+      </div>
+      <div id="zone-banner" aria-live="polite"></div>
+      <div id="toasts" aria-live="polite"></div>
+      <div id="hurt-vignette"></div>
+    </div>
+
+    <div id="screen-loading" class="screen">
+      <div class="loading-card">
+        <h1 class="logo">Animal<br />Adventures</h1>
+        <div class="loading-bar"><div id="loading-fill"></div></div>
+        <p id="loading-text">Growing the forest…</p>
+      </div>
+    </div>
+
+    <div id="screen-start" class="screen" hidden>
+      <div class="start-card">
+        <h1 class="logo">Animal Adventures</h1>
+        <p class="start-player"><button id="btn-start-player" class="player-chip" type="button"></button></p>
+        <p class="start-sub">Pick your first animal. It's free!</p>
+        <div id="starter-cards" class="starter-cards"></div>
+        <p class="save-note">💾 Your progress is saved on this browser and device.</p>
+      </div>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="fade"><div id="fade-text"></div></div>
+
+    <div id="screen-error" class="screen" hidden>
+      <div class="start-card">
+        <h1 class="logo small">Oh no!</h1>
+        <p id="error-text"></p>
+        <button id="btn-retry" class="btn btn-shop" type="button">Try again</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
