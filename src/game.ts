@@ -1,3 +1,4 @@
+import { SEA_PLAYERS } from './config';
 import { Aquarium, AQUA, SEA_INFO, SEA_SPECIES, SeaSpecies, SeaRig, buildSeaCreature, animateSea } from './sealife';
 import { PlayRoom, PLAYROOM, TOYS } from './playroom';
 import { dressRig, dressBody, OUTFITS, CLOTHES } from './outfits';
@@ -165,6 +166,7 @@ export class Game {
     this.zoo = new MagicZoo(this.scene, this.world.collision, activeProfile().name);
     this.playroom = new PlayRoom(this.scene, this.world.collision);
     this.aquarium = new Aquarium(this.scene, this.world.collision);
+    this.aquarium.onFetch = (i) => { const q = (this.save.aquarium ?? [])[i]; if (!q) return; this.audio.squeak(); toast(`🎾 ${q.name} won the race and brought the ball back! Throw it again (T)!`, 'good', 2200); };
     this.zoo.onRunAway = (i) => this.petRunsAway(i);
     this.playroom.onGame = (ev, idx) => {
       const nm = this.save.myPets[idx]?.name ?? '';
@@ -400,7 +402,7 @@ export class Game {
         case 'KeyT': this.throwBall(); break;
         case 'KeyK': this.keepRiddenHorse(); break;
         case 'KeyG': this.openPetGames(); break;
-        case 'KeyP': if (this.swimming) this.catchFish(); else this.petNearest(); break;
+        case 'KeyP': if (this.swimming && !this.inTank) this.catchFish(); else this.petNearest(); break;
         case 'KeyB': this.openBag(); break;
         case 'KeyF': { const t = this.talkTarget(); if (t) t(); else this.action?.fn(); break; }   // F talks to whoever's next to you
         case 'KeyA': this.action?.fn(); break;
@@ -548,6 +550,9 @@ export class Game {
     toast(`🤗 Got you, ${q?.name ?? 'silly'}! Back home you go. Now press the red button to lock the door! 🔒`, 'good', 2800);
   }
   diveY = -0.42;
+  /** Swimming inside the Aquarium's big tank. */
+  inTank = false;
+  tankY = 6;
   wasInPit = false;
   pitHint = false;
   trampHint = false;
@@ -555,7 +560,7 @@ export class Game {
   underwater = false;
   /** Every animal can swim now! (Penguins and otters are just the fastest.) */
   get canSwim() { return !this.riding; }
-  get fastSwimmer() { return this.species === 'penguin' || this.species === 'otter'; }
+  get fastSwimmer() { return this.species === 'penguin' || this.species === 'otter' || SEA_PLAYERS.includes(this.species); }
   /** Fish out in the open sea: a little school that swims near you while you swim. */
   private seaFish: { mesh: THREE.Group; a: number; r: number; speed: number; y: number; golden: boolean; respawnAt: number }[] = [];
   private seaAnchor: { x: number; z: number } | null = null;
@@ -633,6 +638,11 @@ export class Game {
     const hearts = (x: number, y: number, z: number) => this.effects.push(sparkleBurst(this.scene, new THREE.Vector3(x, y, z), 0xff6a9a, 16));
     const lines = ['loves it! 💕', 'wiggles happily! 💗', 'does a happy hop! 💞', 'snuggles up to you! 🥰'];
     const say = lines[Math.floor(Math.random() * lines.length)];
+    if (this.inTank) {
+      const sp = this.aquarium.nearestPet(this.pos);
+      if (sp) { sp.hop = 1.2; hearts(sp.rig.root.position.x, sp.rig.root.position.y + sp.scale * 0.4, sp.rig.root.position.z); this.audio.squeak(); toast(`💙 You petted ${(this.save.aquarium ?? [])[sp.idx]?.name}! It does a happy flip!`, 'good', 2000); return; }
+      toast('💙 Swim up to a sea friend and press P to pet it!', '', 1600); return;
+    }
     if (this.inPlayroom) {
       const pp = this.playroom.nearestPet(this.pos.x, this.pos.z);
       if (pp) { pp.hop = 1.2; this.cheerPet(pp.idx, 'fun', 20); hearts(pp.x, pp.rig.height + 0.4, pp.z); this.audio.squeak(); toast(`💕 You petted ${this.save.myPets[pp.idx]?.name}! It ${say}`, 'good', 2000); return; }
@@ -856,7 +866,8 @@ export class Game {
       const d = Math.hypot(dx, dz), min = PHYSICS.playerRadius + hu.radius;
       if (d < min && d > 1e-4 && Math.abs(this.pos.y - hu.pos.y) < 1.5) { p.x = hu.pos.x + (dx / d) * min; p.z = hu.pos.z + (dz / d) * min; }
     }
-    this.world.collision.resolve(p, this.pos.y, PHYSICS.playerRadius, PHYSICS.stepUp);
+    if (!this.inTank) this.world.collision.resolve(p, this.pos.y, PHYSICS.playerRadius, PHYSICS.stepUp);
+    else { const T = AQUA.tank; p.x = THREE.MathUtils.clamp(p.x, AQUA.x - T.hw + 0.7, AQUA.x + T.hw - 0.7); p.z = THREE.MathUtils.clamp(p.z, AQUA.z - T.hd + 0.7, AQUA.z + T.hd - 0.7); }
     let B = regionBounds(this.pos.x, this.pos.z);
     if (this.canSwim && this.pos.z > 200 && !this.captive) B = { minX: B.minX - 45, maxX: B.maxX + 45, minZ: B.minZ - 45, maxZ: B.maxZ + 45 }; // the open sea!
     const capL = this.captive;
@@ -914,7 +925,15 @@ export class Game {
       this.diveY = Math.max(this.diveY, Math.min(-0.42, floor));
       if (this.diveY < -1 && Math.random() < dt * 4) this.effects.push(sparkleBurst(this.scene, this.pos.clone().setY(this.pos.y + 0.6), 0xdff4ff, 3));
     } else this.diveY = -0.42;
-    this.underwater = this.swimming && this.pos.y < -1.1;
+    // swimming inside the big Aquarium tank with your sea pets
+    if (this.inTank) {
+      const T = AQUA.tank, top = T.h - 1.0;
+      if (this.keys.has('Space')) this.tankY = Math.max(0.8, this.tankY - 2.6 * dt);
+      else if (this.keys.has('KeyZ')) this.tankY = Math.min(top, this.tankY + 3.2 * dt);
+      this.pos.y = this.tankY; this.vy = 0; this.grounded = true; this.groundY = this.tankY; this.swimming = true;
+      if (this.tankY < top - 0.5 && Math.random() < dt * 4) this.effects.push(sparkleBurst(this.scene, this.pos.clone().setY(this.pos.y + 0.6), 0xdff4ff, 3));
+    }
+    this.underwater = this.swimming && (this.inTank ? this.pos.y < AQUA.tank.h - 1.6 : this.pos.y < -1.1);
     this.wasSwimming = this.swimming;
     // the Play Room: wade in the ball pit, bounce on the trampoline
     if (this.inPlayroom) {
@@ -962,7 +981,8 @@ export class Game {
       attack: this.attack?.kind ?? null, attackT: this.attack?.t ?? 0, windup: 0,
     });
     if (this.riding) for (const l of this.rig.legs) { l.pivot.rotation.x = -1.2; l.pivot.rotation.z = (l.phase ? -1 : 1) * 0.35; }   // legs astride the horse
-    if (this.swimming) { this.rig.body.rotation.x = 1.25; this.rig.body.position.y = 0.15 + Math.sin(this.realTime * 4) * 0.03; } // belly-down swimming
+    if (this.swimming && this.rig.kind !== 'sea') { this.rig.body.rotation.x = 1.25; this.rig.body.position.y = 0.15 + Math.sin(this.realTime * 4) * 0.03; } // belly-down swimming
+    { const bub = this.rig.body.getObjectByName('bubble'); if (bub) bub.visible = !this.swimming; }   // sea creatures float in a magic bubble on land
     const ready = this.charge >= COMBAT.chargeMax;
     if (this.hurtFlash > 0) { this.hurtFlash -= dt; setRigGlow(this.rig, 0xff2020, Math.max(0, this.hurtFlash) * 2.5); }
     else if (ready) setRigGlow(this.rig, 0xffb020, 0.22 + 0.15 * Math.sin(this.realTime * 6));
@@ -1499,6 +1519,7 @@ export class Game {
     this.respawning = true;
     $('fade-text').textContent = '🏠 Back to the Magic Zoo…';
     $('fade').classList.add('on');
+    this.inTank = false;
     this.later(0.6, () => {
       this.aquarium.clear();
       const e = this.zoo.zooExit;
@@ -1519,6 +1540,21 @@ export class Game {
     for (const p of this.aquarium.pets) this.effects.push(sparkleBurst(this.scene, p.rig.root.position.clone(), 0x9ae0ff, 14));
     this.audio.splash();
     toast(mode === 'own' ? '🏠 Swish! Everyone swam to their very own home tank!' : '🌊 Splash! Everyone swam into the big tank to play together!', 'good', 2600);
+  }
+  jumpIntoTank() {
+    if (this.inTank || this.respawning) return;
+    this.inTank = true; this.tankY = AQUA.tank.h - 1.0;
+    const T = AQUA.tank;
+    this.pos.set(THREE.MathUtils.clamp(this.pos.x, AQUA.x - T.hw + 1.5, AQUA.x + T.hw - 1.5), this.tankY, THREE.MathUtils.clamp(this.pos.z, AQUA.z - T.hd + 1.5, AQUA.z + T.hd - 1.5));
+    this.audio.splash(); this.effects.push(sparkleBurst(this.scene, this.pos.clone(), 0xbfe8ff, 24));
+    const n = (this.save.aquaMode ?? 'big') === 'big' ? (this.save.aquarium ?? []).length : 0;
+    toast(n ? `🤿 SPLASH! You're in the big tank with ${n} sea friend${n > 1 ? 's' : ''}! T = throw the ball, P = pet, SPACE = dive, Z = up.` : '🤿 SPLASH! Your sea pets are in their own tanks — press "🌊 Everyone, go to the big tank" to play with them all!', 'gold', 4200);
+  }
+  jumpOutOfTank() {
+    if (!this.inTank) return;
+    this.inTank = false; this.aquarium.ballState = 'none'; if (this.aquarium.ball) this.aquarium.ball.visible = false;
+    this.pos.set(this.pos.x, 0, AQUA.z + AQUA.tank.hd + 2.2); this.vy = 0; this.grounded = true; this.groundY = 0;
+    this.audio.splash(); toast('🪜 You climbed out. Drip drip!', 'good', 1600);
   }
   /** Visit your sea pets: feed them or let them go. */
   openAquariumPets() {
@@ -1718,6 +1754,7 @@ export class Game {
   private ballMesh: THREE.Mesh | null = null;
   throwBall() {
     if (this.respawning || this.modal || this.fetch) return;
+    if (this.inTank) { if (this.aquarium.throwBall(this.pos, this.yaw)) { this.audio.jump(); toast('🎾 Splash! Everybody, swim and get the ball!', 'good', 1400); } return; }
     if (this.inPlayroom) { if (this.climb) return; if (this.playroom.game) this.playroom.endGame(); if (this.playroom.throwBall(this.pos, this.yaw)) { this.audio.jump(); toast('🎾 Wheee! Everybody, GO GET IT!', 'good', 1400); } return; }
     if (this.petGame) this.endPetGame();
     let who: ZooAnimal | 'walker' | null = null, name = '', pen = -1;
@@ -4099,7 +4136,7 @@ export class Game {
     this.updateSecrets(dt);
     this.zoo.update(dt, this.realTime, this.inZoo, this.pos);
     this.playroom.update(dt, this.realTime, this.inPlayroom, this.pos);
-    this.aquarium.update(dt, this.realTime, this.inAquarium);
+    this.aquarium.update(dt, this.realTime, this.inAquarium, this.inTank ? this.pos : null);
     this.updateLostPets(dt);
     this.updateFetch(dt);
     this.updatePetGame(dt);
@@ -4127,7 +4164,11 @@ export class Game {
     else if (this.swimming && !this.respawning && this.seaFriendNear()) { const w = this.seaFriendNear()!; act = { label: `💙 Make friends with the ${SEA_INFO[w.kind].name} ${SEA_INFO[w.kind].emoji}`, fn: () => this.befriendSea(w) }; }
     else if (this.inAquarium && !this.respawning) {
       const tn = this.aquarium.tankNear(this.pos.x, this.pos.z), nearTank = tn === 'big' || tn >= 0;
-      if (near(AQUA.x, AQUA.z + AQUA.halfD - 1.5, 3)) act = { label: '🚪 Leave the Aquarium', fn: () => this.leaveAquarium() };
+      const sp = this.inTank ? this.aquarium.nearestPet(this.pos) : null;
+      if (this.inTank && sp) { const nm = (this.save.aquarium ?? [])[sp.idx]?.name; act = { label: `💙 Pet ${nm} (P)`, fn: () => this.petNearest() }; }
+      else if (this.inTank) act = { label: '🪜 Climb out of the tank', fn: () => this.jumpOutOfTank() };
+      else if (near(AQUA.x, AQUA.z + AQUA.halfD - 1.5, 3)) act = { label: '🚪 Leave the Aquarium', fn: () => this.leaveAquarium() };
+      else if (tn === 'big') act = { label: '🤿 Jump into the big tank and swim!', fn: () => this.jumpIntoTank() };
       else if (nearTank) { const q = typeof tn === 'number' && (this.save.aquaMode ?? 'big') === 'own' ? (this.save.aquarium ?? [])[tn] : null; act = { label: q ? `🐠 Visit ${q.name}` : '🐠 Visit your sea pets', fn: () => this.openAquariumPets() }; }
     }
     else if (this.pos.z > -300 && this.lostPetNear() >= 0) { const li = this.lostPetNear(); act = { label: `🤗 You found ${this.save.myPets[li].name}! Bring it home`, fn: () => this.bringLostPetHome(li) }; }

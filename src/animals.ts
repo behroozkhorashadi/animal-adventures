@@ -1,9 +1,10 @@
 // Procedural "stylised realistic" animal models with a simple animation rig.
 import * as THREE from 'three';
 import { furTexture, FurStyle } from './textures';
-import { Species, OppSpecies, SkinDef } from './config';
+import { Species, OppSpecies, SkinDef, SEA_PLAYERS } from './config';
+import { buildSeaCreature, animateSea, SeaRig, SeaSpecies } from './sealife';
 
-export type RigKind = 'quad' | 'chicken' | 'penguin' | 'bunny' | 'human';
+export type RigKind = 'quad' | 'chicken' | 'penguin' | 'bunny' | 'human' | 'sea';
 
 export interface AnimalRig {
   root: THREE.Group;      // placed at the feet; rotation.y = yaw
@@ -459,9 +460,41 @@ const OPP_COLORS: Record<OppSpecies, SkinDef['colors']> = {
 };
 
 /** girl = true makes a lion a lioness (no mane, like real ones). */
+/** Play as a sea creature! On land it floats along inside a magic bubble. */
+function buildSeaPlayer(species: Species, skin: SkinDef): AnimalRig {
+  const kind: SeaSpecies = species === 'seaturtle' ? 'turtle' : species === 'whale' && skin.id === 'whale-narwhal' ? 'narwhal' : species as SeaSpecies;
+  const sea = buildSeaCreature(kind);
+  const size = ({ dolphin: 1.7, seaturtle: 1.15, octopus: 1.1, shark: 1.9, whale: 2.8 } as Record<string, number>)[species] ?? 1.5;
+  sea.root.scale.setScalar(size);
+  // re-colour it to match the skin (body colours only; eyes and bellies stay)
+  sea.root.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+    if (!m || !m.color) return;
+    const hsl = { h: 0, s: 0, l: 0 }; m.color.getHSL(hsl);
+    if (hsl.l > 0.85 || hsl.l < 0.1) { if (skin.id === 'whale-orca' && hsl.l > 0.85) return; return; }
+    o instanceof THREE.Mesh && (o.material = m.clone());
+    (((o as THREE.Mesh).material) as THREE.MeshStandardMaterial).color.setHex(skin.colors.primary);
+  });
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const lift = species === 'octopus' ? 0.75 : species === 'seaturtle' ? 0.6 : size * 0.32 + 0.25;
+  sea.root.position.y = lift; body.add(sea.root);
+  // a head point near the front (for hats!)
+  const head = new THREE.Group(); head.position.set(0, lift + (species === 'octopus' ? 0.45 : size * 0.12), species === 'octopus' ? 0.05 : size * 0.32); body.add(head);
+  const hm = new THREE.Mesh(new THREE.SphereGeometry(size * 0.12, 8, 6), new THREE.MeshBasicMaterial({ visible: false })); head.add(hm);
+  // the magic bubble (shown on land)
+  const bub = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.8, size * 0.62), 24, 16), new THREE.MeshStandardMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.2, depthWrite: false, emissive: 0x6ac8ff, emissiveIntensity: 0.15 }));
+  bub.name = 'bubble'; bub.position.y = lift; bub.renderOrder = 4; body.add(bub);
+  const mats: THREE.MeshStandardMaterial[] = [];
+  root.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial; if (m && (m as THREE.MeshStandardMaterial).isMeshStandardMaterial && o !== bub) mats.push(m); });
+  const rig: AnimalRig = { root, body, head, legs: [], ears: [], wings: [], kind: 'sea', height: lift + size * 0.35, radius: Math.min(0.9, size * 0.35), materials: mats, headBase: new THREE.Vector3(), phase: Math.random() * 10, eyes: [], idleT: 0, blinkAt: 99 };
+  rig.root.userData.sea = sea;
+  return rig;
+}
+
 export function buildPlayerAnimal(species: Species, skin: SkinDef, girl = false): AnimalRig {
   let rig: AnimalRig;
-  if (species === 'chicken') rig = buildChicken(skin.colors, skin.pattern);
+  if (SEA_PLAYERS.includes(species)) rig = buildSeaPlayer(species, skin);
+  else if (species === 'chicken') rig = buildChicken(skin.colors, skin.pattern);
   else if (species === 'penguin') rig = buildPenguin(skin.colors);
   else if (species === 'bunny') rig = buildBunny(skin.colors, skin.pattern);
   else if (species === 'human') rig = buildHuman(skin.colors, girl);
@@ -576,6 +609,13 @@ export function animateRig(rig: AnimalRig, dt: number, s: AnimState) {
   rig.head.position.copy(rig.headBase);
   rig.head.rotation.set(0, 0, 0);
 
+  if (rig.kind === 'sea') {
+    const sea = rig.root.userData.sea as SeaRig | undefined;
+    if (sea) animateSea(sea, rig.phase * 0.35, 1 + moving);
+    B.position.y = Math.sin(rig.phase * 0.25) * 0.08;
+    B.rotation.z = Math.sin(rig.phase * 0.5) * 0.05 * moving;
+    return;
+  }
   if (rig.kind === 'quad') {
     for (const l of rig.legs) l.pivot.rotation.x = s.airborne ? (l.front ? -0.6 : 0.6) : Math.sin(ph + l.phase) * 0.6 * moving;
     B.position.y = Math.abs(Math.sin(ph)) * 0.03 * moving;

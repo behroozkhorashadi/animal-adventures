@@ -175,7 +175,7 @@ export function layoutTanks(list: { species: string }[]): OwnTank[] {
   return out;
 }
 
-interface TankPet { idx: number; rig: SeaRig; a: number; r: number; y: number; speed: number; scale: number; cx: number; cz: number; home: { x: number; z: number; hw: number; hd: number; h: number } }
+interface TankPet { idx: number; rig: SeaRig; a: number; r: number; y: number; speed: number; scale: number; cx: number; cz: number; home: { x: number; z: number; hw: number; hd: number; h: number }; cur?: THREE.Vector3; hop?: number }
 export class Aquarium {
   group = new THREE.Group();
   pets: TankPet[] = [];
@@ -185,6 +185,25 @@ export class Aquarium {
   mode: 'big' | 'own' = 'big';
   tanks: OwnTank[] = [];
   private tankGroup = new THREE.Group();
+  /** Swimming with you in the big tank: the ball you throw, and who's bringing it back. */
+  ball: THREE.Mesh | null = null;
+  ballVel = new THREE.Vector3();
+  ballState: 'none' | 'flying' | 'carried' = 'none';
+  carrier: TankPet | null = null;
+  onFetch?: (idx: number) => void;
+  /** Throw a ball in the big tank: everyone races for it! */
+  throwBall(from: THREE.Vector3, yaw: number) {
+    if (this.ballState !== 'none') return false;
+    if (!this.ball) { this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), mat(0xff5a7a, { emissive: 0x802030, emissiveIntensity: 0.3 })); this.group.add(this.ball); }
+    this.ball.visible = true; this.ball.position.set(from.x + Math.sin(yaw) * 0.8, from.y + 0.4, from.z + Math.cos(yaw) * 0.8);
+    this.ballVel.set(Math.sin(yaw) * 7, 1.2, Math.cos(yaw) * 7); this.ballState = 'flying'; this.carrier = null;
+    return true;
+  }
+  nearestPet(pos: THREE.Vector3, r = 2.6) {
+    let best: TankPet | null = null, bd = r;
+    for (const p of this.pets) { const q = p.rig.root.position; const d = q.distanceTo(pos) - p.scale * 0.3; if (d < bd) { bd = d; best = p; } }
+    return best;
+  }
   private tankCols: Collider[] = [];
   private lbl(text: string, w: number, sub = '') {
     const H = sub ? 200 : 128;
@@ -299,12 +318,55 @@ export class Aquarium {
     const i = this.tanks.findIndex((t) => t.hw > 1 && Math.abs(x - t.x) < t.hw + 3 && Math.abs(z - t.z) < t.hd + 3);
     return i;
   }
-  update(dt: number, t: number, inside: boolean) {
+  update(dt: number, t: number, inside: boolean, swimmer: THREE.Vector3 | null = null) {
     this.group.visible = inside;
     if (!inside) return;
+    const A = AQUA, T = A.tank;
+    // the ball drifts through the water
+    const b = this.ball;
+    if (b && this.ballState === 'flying') {
+      this.ballVel.multiplyScalar(Math.max(0, 1 - dt * 1.2)); this.ballVel.y -= dt * 0.6;
+      b.position.addScaledVector(this.ballVel, dt);
+      b.position.x = Math.max(A.x - T.hw + 0.5, Math.min(A.x + T.hw - 0.5, b.position.x));
+      b.position.z = Math.max(A.z - T.hd + 0.5, Math.min(A.z + T.hd - 0.5, b.position.z));
+      b.position.y = Math.max(0.7, Math.min(T.h - 0.8, b.position.y));
+    }
+    if (!swimmer && this.ballState !== 'none') { this.ballState = 'none'; if (b) b.visible = false; }
     for (const p of this.pets) {
       p.a += p.speed * dt;
       const H = p.home;
+      const inBig = H.hw === T.hw;
+      if (swimmer && inBig) {
+        // playing with you! Everyone swims around you (or races for the ball)
+        if (!p.cur) p.cur = p.rig.root.position.clone();
+        let tx: number, ty: number, tz: number, sp = 2.2;
+        if (this.ballState === 'flying' && b) { tx = b.position.x; ty = b.position.y; tz = b.position.z; sp = 3.6 + (p.idx % 3) * 0.3; }
+        else if (this.ballState === 'carried' && this.carrier === p) { tx = swimmer.x; ty = swimmer.y; tz = swimmer.z; sp = 3.2; }
+        else {
+          const k = this.pets.indexOf(p), ring = 2.2 + (k % 3) * 1.3 + p.scale * 0.35, a = t * 0.5 * (k % 2 ? 1 : -1) + k * 1.9;
+          tx = swimmer.x + Math.cos(a) * ring; ty = swimmer.y + Math.sin(t * 0.7 + k) * 0.6; tz = swimmer.z + Math.sin(a) * ring;
+        }
+        tx = Math.max(A.x - T.hw + 0.4 + p.scale * 0.4, Math.min(A.x + T.hw - 0.4 - p.scale * 0.4, tx));
+        tz = Math.max(A.z - T.hd + 0.4 + p.scale * 0.4, Math.min(A.z + T.hd - 0.4 - p.scale * 0.4, tz));
+        ty = Math.max(0.6 + p.scale * 0.25, Math.min(T.h - 0.6 - p.scale * 0.25, ty));
+        const d = Math.hypot(tx - p.cur.x, ty - p.cur.y, tz - p.cur.z);
+        if (d > 0.05) {
+          const st = Math.min(d, sp * dt);
+          const dx = (tx - p.cur.x) / d, dz = (tz - p.cur.z) / d;
+          p.cur.x += dx * st; p.cur.y += ((ty - p.cur.y) / d) * st; p.cur.z += dz * st;
+          if (Math.hypot(dx, dz) > 0.2) { const want = Math.atan2(dx, dz); let dr = want - p.rig.root.rotation.y; while (dr > Math.PI) dr -= Math.PI * 2; while (dr < -Math.PI) dr += Math.PI * 2; p.rig.root.rotation.y += dr * Math.min(1, dt * 4); }
+        }
+        if (this.ballState === 'flying' && b && p.cur.distanceTo(b.position) < 0.6 + p.scale * 0.3) { this.ballState = 'carried'; this.carrier = p; }
+        if (this.ballState === 'carried' && this.carrier === p && b) {
+          b.position.set(p.cur.x + Math.sin(p.rig.root.rotation.y) * p.scale * 0.5, p.cur.y, p.cur.z + Math.cos(p.rig.root.rotation.y) * p.scale * 0.5);
+          if (p.cur.distanceTo(swimmer) < 1.6 + p.scale * 0.4) { this.ballState = 'none'; b.visible = false; this.carrier = null; p.hop = 1; this.onFetch?.(p.idx); }
+        }
+        if ((p.hop ?? 0) > 0) p.hop! -= dt;
+        p.rig.root.position.set(p.cur.x, p.cur.y + ((p.hop ?? 0) > 0 ? Math.abs(Math.sin(p.hop! * 9)) * 0.3 : 0), p.cur.z);
+        animateSea(p.rig, t * 1.6 + p.idx, 1.5);
+        continue;
+      }
+      p.cur = undefined;
       // an oval swim path that fits the tank
       const rx = Math.min(p.r, H.hw - p.scale * 0.45), rz = Math.min(p.r * (H.hd / Math.max(H.hw, 0.1)), H.hd - p.scale * 0.45);
       const x = H.x + p.cx + Math.cos(p.a) * Math.max(0.1, rx), z = H.z + p.cz + Math.sin(p.a) * Math.max(0.1, rz);

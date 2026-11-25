@@ -4,7 +4,7 @@
 // here so it can be tweaked without touching game code.
 // ---------------------------------------------------------------------------
 
-export type Species = 'chicken' | 'penguin' | 'bunny' | 'fox' | 'wolf' | 'lion' | 'cat' | 'dog' | 'otter' | 'horse' | 'panda' | 'bear' | 'tiger' | 'unicorn' | 'human';
+export type Species = 'chicken' | 'penguin' | 'bunny' | 'fox' | 'wolf' | 'lion' | 'cat' | 'dog' | 'otter' | 'horse' | 'panda' | 'bear' | 'tiger' | 'unicorn' | 'human' | 'dolphin' | 'seaturtle' | 'octopus' | 'shark' | 'whale';
 export type ZoneId = 'forest' | 'savanna' | 'swamp' | 'antarctica' | 'village' | 'jungle';
 export type OppSpecies =
   | 'badger' | 'fox' | 'boar' | 'wolf' | 'warthog' | 'hyena' | 'lion' | 'otter' | 'crocodile'
@@ -123,9 +123,42 @@ export const PLAYER_ANIMALS: Record<Species, PlayerAnimalDef> = {
     unlock: { wins: 4 }, unlockText: 'Win 4 battles', icon: '🧒',
     blurb: 'A kid explorer! Village humans think you\'re one of them, and you can ride horses (press A next to one).',
   },
+  // ---- sea creatures: super fast in the water; on land they float along inside a magic bubble!
+  dolphin: {
+    name: 'Dolphin', starter: false, cost: 200, health: 150, scratch: 14, bite: 26,
+    speed: 7.6, jumpMult: 1.2, fallGravityMult: 0.85, mudSpeedMult: 1.2, iceSpeedMult: 1.1, rating: 2.8,
+    unlock: null, unlockText: '', icon: '🐬',
+    blurb: 'A smart, splashy sea friend. Zooms through water and does big jumps!',
+  },
+  seaturtle: {
+    name: 'Sea Turtle', starter: false, cost: 160, health: 220, scratch: 10, bite: 22,
+    speed: 6.2, jumpMult: 0.95, fallGravityMult: 1, mudSpeedMult: 1.1, rating: 2.6,
+    unlock: null, unlockText: '', icon: '🐢',
+    blurb: 'Slow on land, graceful in the sea, and its shell makes it super tough.',
+  },
+  octopus: {
+    name: 'Octopus', starter: false, cost: 180, health: 140, scratch: 18, bite: 22,
+    speed: 7.0, jumpMult: 1.05, fallGravityMult: 0.9, mudSpeedMult: 1.2, rating: 2.6,
+    unlock: null, unlockText: '', icon: '🐙',
+    blurb: 'Eight wiggly arms for eight times the fun!',
+  },
+  shark: {
+    name: 'Friendly Shark', starter: false, cost: 350, health: 200, scratch: 22, bite: 38,
+    speed: 8.2, jumpMult: 1.05, fallGravityMult: 1, mudSpeedMult: 1.2, iceSpeedMult: 1.1, rating: 4,
+    unlock: null, unlockText: '', icon: '🦈',
+    blurb: 'Big, fast and strong, but it only eats fish!',
+  },
+  whale: {
+    name: 'Whale', starter: false, cost: 600, health: 320, scratch: 20, bite: 40,
+    speed: 7.0, jumpMult: 1, fallGravityMult: 0.9, mudSpeedMult: 1.2, rating: 4.4,
+    unlock: null, unlockText: '', icon: '🐋',
+    blurb: 'The BIGGEST animal of all! Super strong and super splashy.',
+  },
 };
+/** Sea creatures you can play as. */
+export const SEA_PLAYERS: Species[] = ['dolphin', 'seaturtle', 'octopus', 'shark', 'whale'];
 
-export const SPECIES_ORDER: Species[] = ['chicken', 'penguin', 'bunny', 'cat', 'dog', 'fox', 'otter', 'horse', 'panda', 'wolf', 'bear', 'tiger', 'lion', 'unicorn', 'human'];
+export const SPECIES_ORDER: Species[] = ['chicken', 'penguin', 'bunny', 'cat', 'dog', 'fox', 'otter', 'horse', 'panda', 'wolf', 'bear', 'tiger', 'lion', 'unicorn', 'human', 'dolphin', 'seaturtle', 'octopus', 'shark', 'whale'];
 
 // --- Opponents ---------------------------------------------------------------
 export interface TierDef { health: number; damage: number; speed: number; reward: number; rating: number; windup?: number }
@@ -312,6 +345,19 @@ export const SKINS: SkinDef[] = [
   { id: 'tiger-bengal', species: 'tiger', name: 'Bengal Tiger', cost: 0, colors: { primary: 0xe8822a, secondary: 0xfff2e0, accent: 0x2a1a10, extra: 0x1e140c }, pattern: 'stripes' },
   { id: 'tiger-white', species: 'tiger', name: 'White Tiger', cost: 20, colors: { primary: 0xf4f2ee, secondary: 0xffffff, accent: 0x2a2a30, extra: 0x2a2a30 }, pattern: 'stripes' },
   { id: 'tiger-golden', species: 'tiger', name: 'Golden Tiger', cost: 40, colors: { primary: 0xf0c060, secondary: 0xfff6e0, accent: 0xb8742a, extra: 0xc87a30 }, pattern: 'stripes' },
+  { id: 'dolphin-grey', species: 'dolphin', name: 'Ocean Grey', cost: 0, colors: { primary: 0x8aa0b8, secondary: 0xf0f0f4, accent: 0x8aa0b8 } },
+  { id: 'dolphin-pink', species: 'dolphin', name: 'Pink River Dolphin', cost: 25, colors: { primary: 0xf0a0b8, secondary: 0xfff0f4, accent: 0xf0a0b8 } },
+  { id: 'dolphin-gold', species: 'dolphin', name: 'Golden Dolphin', cost: 45, colors: { primary: 0xf0c040, secondary: 0xfff4d0, accent: 0xf0c040 } },
+  { id: 'seaturtle-green', species: 'seaturtle', name: 'Green Sea Turtle', cost: 0, colors: { primary: 0x4a8a3a, secondary: 0x8ab86a, accent: 0x2a5a2a } },
+  { id: 'seaturtle-rainbow', species: 'seaturtle', name: 'Rainbow Shell', cost: 30, colors: { primary: 0xb06aff, secondary: 0x8ab86a, accent: 0xffd34a } },
+  { id: 'octopus-purple', species: 'octopus', name: 'Purple Octopus', cost: 0, colors: { primary: 0xb05ab8, secondary: 0xc07ac8, accent: 0xb05ab8 } },
+  { id: 'octopus-red', species: 'octopus', name: 'Red Octopus', cost: 20, colors: { primary: 0xd83a3a, secondary: 0xe86a5a, accent: 0xd83a3a } },
+  { id: 'octopus-blue', species: 'octopus', name: 'Blue-ringed', cost: 35, colors: { primary: 0xe8d47a, secondary: 0x4aa8ff, accent: 0xe8d47a } },
+  { id: 'shark-grey', species: 'shark', name: 'Grey Shark', cost: 0, colors: { primary: 0x6a7888, secondary: 0xf0f0f4, accent: 0x6a7888 } },
+  { id: 'shark-hammer', species: 'shark', name: 'Blue Shark', cost: 30, colors: { primary: 0x3a6ab8, secondary: 0xf0f0f4, accent: 0x3a6ab8 } },
+  { id: 'whale-blue', species: 'whale', name: 'Blue Whale', cost: 0, colors: { primary: 0x3a6aa8, secondary: 0xe8eef8, accent: 0x3a6aa8 } },
+  { id: 'whale-orca', species: 'whale', name: 'Orca', cost: 40, colors: { primary: 0x1a1a22, secondary: 0xffffff, accent: 0x1a1a22 } },
+  { id: 'whale-narwhal', species: 'whale', name: 'Narwhal (sea unicorn!)', cost: 60, colors: { primary: 0x9aa8b8, secondary: 0xf4f4f8, accent: 0x9aa8b8 } },
   { id: 'unicorn-white', species: 'unicorn', name: 'Classic Unicorn', cost: 0, colors: { primary: 0xfaf8f6, secondary: 0xffffff, accent: 0xe86aa8 } },
   { id: 'unicorn-rainbow', species: 'unicorn', name: 'Rainbow Mane', cost: 20, colors: { primary: 0xfff4fa, secondary: 0xffffff, accent: 0x7ab0f0, extra: 0xffd34a }, pattern: 'stripes' },
   { id: 'unicorn-galaxy', species: 'unicorn', name: 'Galaxy Unicorn', cost: 40, colors: { primary: 0x3a2a6a, secondary: 0xc8b8ff, accent: 0xffe066 } },
