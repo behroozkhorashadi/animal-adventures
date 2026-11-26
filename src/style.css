@@ -397,3 +397,7 @@ body.climbing .climb-panel { left: 12px; transform: none; bottom: calc(12px + en
 body.climbing .climb-btns { flex-direction: column; align-items: stretch; }
 #coins { cursor: pointer; }
 .btn-aqua { background: linear-gradient(90deg, #4ab0ff, #6ae0d8); color: #08304a; font-weight: 800; box-shadow: 0 3px 0 #2a7ab0; }
+.online-chip { background: #6a4ac8; color: #fff; }
+.btn-emote { background: #ffe0f0; color: #7a2a5a; font-weight: 800; }
+.emote-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.emote-grid .btn { font-size: 1.15rem; padding: 12px; }

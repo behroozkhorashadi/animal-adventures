@@ -1,3 +1,4 @@
+import { Multiplayer, EMOTES } from './net';
 import { SEA_PLAYERS } from './config';
 import { Aquarium, AQUA, SEA_INFO, SEA_SPECIES, SeaSpecies, SeaRig, buildSeaCreature, animateSea } from './sealife';
 import { PlayRoom, PLAYROOM, TOYS } from './playroom';
@@ -165,6 +166,9 @@ export class Game {
     this.secrets = new SecretPlaces(this.scene, this.world.collision);
     this.zoo = new MagicZoo(this.scene, this.world.collision, activeProfile().name);
     this.playroom = new PlayRoom(this.scene, this.world.collision);
+    this.net = new Multiplayer(this.scene);
+    this.net.onCount = (n) => { const c = $('online-chip'); c.hidden = !this.net.online; c.textContent = n ? `👥 ${n + 1} playing` : '👥 Just you'; $('btn-emote').hidden = !this.net.online; };
+    this.net.onJoin = (name) => { if (this.started) toast(`👋 ${name} joined the game! Say hi with the 👋 Say button.`, 'gold', 3200); };
     this.aquarium = new Aquarium(this.scene, this.world.collision);
     this.aquarium.onFetch = (i) => { const q = (this.save.aquarium ?? [])[i]; if (!q) return; this.audio.squeak(); toast(`🎾 ${q.name} won the race and brought the ball back! Throw it again (T)!`, 'good', 2200); };
     this.zoo.onRunAway = (i) => this.petRunsAway(i);
@@ -449,6 +453,7 @@ export class Game {
       this.renderer.domElement.addEventListener('pointerup', (e) => { if (this.climb && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 8) this.climbTap(e.clientX, e.clientY); down = null; });
     }
     $('coins').addEventListener('click', () => { if (this.started && !this.modal && !this.captive) this.openSendCoins(); });
+    hudBtn('btn-emote', () => this.openEmotes());
     hudBtn('btn-aqua-own', () => this.setAquaMode('own'));
     hudBtn('btn-aqua-big', () => this.setAquaMode('big'));
     hudBtn('btn-aquarium', () => { if (this.inAquarium) this.leaveAquarium(); else this.enterAquarium(); });
@@ -1495,6 +1500,29 @@ export class Game {
   secrets!: SecretPlaces;
   zoo!: MagicZoo;
   playroom!: PlayRoom;
+  net!: Multiplayer;
+  /** Which place you're in, so you only see friends who are in the same place. */
+  private regionKey() {
+    if (this.inAquarium) return 'aqua';
+    if (this.inPlayroom) return 'play';
+    if (this.inZoo) return 'zoo';
+    if (this.inSecret) return 'secret';
+    if (this.pos.z < -300) return this.indoors ? 'myhouse' : this.inBarn ? 'barn' : 'house';
+    return 'world';
+  }
+  openEmotes() {
+    if (!this.net.online) return;
+    this.openModal('players', (box) => {
+      box.innerHTML = '';
+      box.append(this.head('👋 Say something!', true));
+      const body = el('div', { class: 'modal-body' });
+      const grid = el('div', { class: 'emote-grid' });
+      EMOTES.forEach((t, i) => grid.append(button(t, 'btn-small', () => { this.closeModal(); this.net.emote(i, this.rig, this.realTime); this.audio.click(); })));
+      body.append(grid);
+      body.append(el('p', { class: 'muted', text: 'Everyone playing near you will see it above your head.' }));
+      box.append(body);
+    }, true);
+  }
   aquarium!: Aquarium;
   enterAquarium() {
     if (this.respawning || this.captive) return;
@@ -4138,6 +4166,7 @@ export class Game {
     this.playroom.update(dt, this.realTime, this.inPlayroom, this.pos);
     this.aquarium.update(dt, this.realTime, this.inAquarium, this.inTank ? this.pos : null);
     this.updateLostPets(dt);
+    if (this.started) this.net.update(dt, this.realTime, { name: activeProfile().name, girl: !!this.save.girl, species: this.species, skin: this.save.equippedSkins[this.species] ?? '', x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw, speed: this.respawning ? 0 : this.speedNow, swim: this.swimming, region: this.regionKey() }, this.rig);
     this.updateFetch(dt);
     this.updatePetGame(dt);
     this.updateNeeds(dt);
